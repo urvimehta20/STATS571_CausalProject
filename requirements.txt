@@ -1,0 +1,13 @@
+numpy
+pandas
+scipy
+networkx
+matplotlib
+seaborn
+scikit-learn
+statsmodels
+tqdm
+yfinance
+pandas-datareader
+tigramite
+causal-learn
