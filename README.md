@@ -1,6 +1,4 @@
-# CD-NOTS Reproduction (arXiv:2312.17375v2)
-
-This repository reproduces the CD-NOTS paper workflow using public datasets and a Python `venv` setup.
+# CD-NOTS Reproduction
 
 ## Scope
 
@@ -8,10 +6,9 @@ This repository reproduces the CD-NOTS paper workflow using public datasets and 
 - Reproduces:
   - Simulation study across node/sample grids.
   - CD-NOTS vs PCMCI benchmark.
-  - Public case studies:
+  - Case studies:
     - Fama-French + Apple returns.
     - Macroeconomic CPI/PPI/unemployment across countries.
-- Excludes the proprietary Bloomberg case study.
 
 ## Setup
 
