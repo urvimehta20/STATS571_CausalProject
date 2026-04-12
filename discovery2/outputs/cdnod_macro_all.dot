@@ -1,0 +1,14 @@
+digraph {
+fontsize=18;
+dpi=200;
+0 [label=unemployment];
+1 [label=cpi];
+2 [label=ppi];
+3 [label="context_country"];
+0 -> 1 [dir=both, arrowtail=none, arrowhead=none];
+0 -> 2 [dir=both, arrowtail=none, arrowhead=none];
+3 -> 0 [dir=both, arrowtail=none, arrowhead=normal];
+1 -> 2 [dir=both, arrowtail=none, arrowhead=none];
+3 -> 1 [dir=both, arrowtail=none, arrowhead=normal];
+3 -> 2 [dir=both, arrowtail=none, arrowhead=normal];
+}

@@ -15,7 +15,7 @@ def main() -> None:
     ff.index = pd.to_datetime(ff.index)
     ff = ff.rename(columns={"Mkt-RF": "Mkt_RF"})
 
-    aapl = yf.download("AAPL", start="2000-01-01", end="2023-01-01", auto_adjust=True, progress=False)
+    aapl = yf.download("AAPL", start="2000-01-01", end="2023-12-01", auto_adjust=True, progress=False)
     if isinstance(aapl.columns, pd.MultiIndex):
         aapl.columns = aapl.columns.get_level_values(0)
     aapl["AAPL_RET"] = aapl["Close"].pct_change() * 100.0

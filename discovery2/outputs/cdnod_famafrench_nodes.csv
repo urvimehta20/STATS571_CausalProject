@@ -1,0 +1,9 @@
+node,is_context
+Mkt_RF,False
+SMB,False
+HML,False
+RMW,False
+CMA,False
+RF,False
+AAPL_RET,False
+context_time,True

@@ -1,0 +1,13 @@
+from,to,weight
+unemployment,cpi,-1.0
+unemployment,ppi,-1.0
+unemployment,context_country,1.0
+cpi,unemployment,-1.0
+cpi,ppi,-1.0
+cpi,context_country,1.0
+ppi,unemployment,-1.0
+ppi,cpi,-1.0
+ppi,context_country,1.0
+context_country,unemployment,-1.0
+context_country,cpi,-1.0
+context_country,ppi,-1.0

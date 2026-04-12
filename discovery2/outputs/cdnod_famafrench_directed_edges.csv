@@ -1,0 +1,10 @@
+from,to
+SMB,Mkt_RF
+RMW,Mkt_RF
+CMA,Mkt_RF
+AAPL_RET,Mkt_RF
+SMB,RMW
+HML,RMW
+CMA,HML
+AAPL_RET,HML
+context_time,RF

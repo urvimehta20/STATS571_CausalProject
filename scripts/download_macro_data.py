@@ -19,7 +19,7 @@ FRED_SERIES = {
 def main() -> None:
     raw_dir = Path("data/raw")
     raw_dir.mkdir(parents=True, exist_ok=True)
-    start, end = "2000-01-01", "2024-01-01"
+    start, end = "2000-01-01", "2024-12-01"
     rows = []
     for country, mapping in FRED_SERIES.items():
         country_df = pd.DataFrame()

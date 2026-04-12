@@ -33,6 +33,7 @@ class CDNOTS:
             "graph": graph,
             "sepsets": sepsets,
             "lagged_data": lagged,
+            "ci_stability_summary": self.ci.get_stability_summary(),
         }
 
     def _skeleton_discovery(self, lagged: pd.DataFrame):

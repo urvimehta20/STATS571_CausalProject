@@ -1,0 +1,21 @@
+digraph {
+fontsize=18;
+dpi=200;
+0 [label="Mkt_RF"];
+1 [label=SMB];
+2 [label=HML];
+3 [label=RMW];
+4 [label=CMA];
+5 [label=RF];
+6 [label="AAPL_RET"];
+7 [label="context_time"];
+1 -> 0 [dir=both, arrowtail=none, arrowhead=normal];
+3 -> 0 [dir=both, arrowtail=none, arrowhead=normal];
+4 -> 0 [dir=both, arrowtail=none, arrowhead=normal];
+6 -> 0 [dir=both, arrowtail=none, arrowhead=normal];
+1 -> 3 [dir=both, arrowtail=none, arrowhead=normal];
+2 -> 3 [dir=both, arrowtail=none, arrowhead=normal];
+4 -> 2 [dir=both, arrowtail=none, arrowhead=normal];
+6 -> 2 [dir=both, arrowtail=none, arrowhead=normal];
+7 -> 5 [dir=both, arrowtail=none, arrowhead=normal];
+}

@@ -1,4 +1,6 @@
 .venv/
+.mplcache/
+logs/
 __pycache__/
 .pycache/
 .pytest_cache/
