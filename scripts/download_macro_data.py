@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pandas as pd
-from pandas_datareader import data as pdr
+import requests
 from src.cdnots.project_io import ProjectPaths, get_logger
 
 LOGGER = get_logger("scripts.download_macro_data")
@@ -19,6 +20,22 @@ FRED_SERIES = {
 }
 
 
+def _fetch_fred_series(series_id: str, start: str, end: str) -> pd.DataFrame:
+    """
+    Fetch a single FRED series using the public CSV endpoint.
+    """
+    url = f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}"
+    response = requests.get(url, timeout=60)
+    response.raise_for_status()
+    series_df = pd.read_csv(io.StringIO(response.text))
+    date_col = series_df.columns[0]
+    series_df = series_df.rename(columns={date_col: "date", series_id: series_id})
+    series_df["date"] = pd.to_datetime(series_df["date"], errors="coerce")
+    series_df[series_id] = pd.to_numeric(series_df[series_id], errors="coerce")
+    mask = (series_df["date"] >= pd.to_datetime(start)) & (series_df["date"] <= pd.to_datetime(end))
+    return series_df.loc[mask].reset_index(drop=True)
+
+
 def main() -> None:
     paths = ProjectPaths(Path("."))
     paths.ensure_standard_dirs()
@@ -28,7 +45,8 @@ def main() -> None:
         country_df = pd.DataFrame()
         for fred_code, col in mapping.items():
             try:
-                s = pdr.DataReader(fred_code, "fred", start, end).rename(columns={fred_code: col})
+                s = _fetch_fred_series(fred_code, start, end).rename(columns={fred_code: col})
+                s = s.set_index("date")
                 country_df = s if country_df.empty else country_df.join(s, how="outer")
             except Exception:
                 continue

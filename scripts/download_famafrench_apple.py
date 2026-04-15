@@ -1,22 +1,63 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from pathlib import Path
 
 import pandas as pd
+import requests
 import yfinance as yf
-from pandas_datareader import data as pdr
 from src.cdnots.project_io import ProjectPaths, get_logger
 
 LOGGER = get_logger("scripts.download_famafrench_apple")
+
+
+def _download_famafrench_5f_daily() -> pd.DataFrame:
+    """
+    Download and parse the Fama-French 5-factor daily dataset directly from
+    Kenneth French's public ZIP endpoint.
+    """
+    url = "https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/F-F_Research_Data_5_Factors_2x3_daily_CSV.zip"
+    response = requests.get(url, timeout=60)
+    response.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        inner_name = archive.namelist()[0]
+        raw_text = archive.read(inner_name).decode("utf-8", errors="ignore")
+
+    lines = raw_text.splitlines()
+    start_idx = None
+    for idx, line in enumerate(lines):
+        if line.strip().startswith(",Mkt-RF"):
+            start_idx = idx
+            break
+    if start_idx is None:
+        raise RuntimeError("Could not locate Fama-French daily table header.")
+
+    table_lines: list[str] = []
+    for line in lines[start_idx:]:
+        stripped = line.strip()
+        if not stripped:
+            break
+        # Daily rows have YYYYMMDD in first column
+        if stripped[0].isdigit() and len(stripped.split(",")[0]) == 8:
+            table_lines.append(stripped)
+        elif stripped.startswith(",Mkt-RF"):
+            table_lines.append(stripped)
+        elif table_lines:
+            break
+
+    ff = pd.read_csv(io.StringIO("\n".join(table_lines)))
+    ff = ff.rename(columns={ff.columns[0]: "Date", "Mkt-RF": "Mkt_RF"})
+    ff["Date"] = pd.to_datetime(ff["Date"], format="%Y%m%d")
+    ff = ff.set_index("Date").sort_index()
+    return ff
 
 
 def main() -> None:
     paths = ProjectPaths(Path("."))
     paths.ensure_standard_dirs()
 
-    ff = pdr.DataReader("F-F_Research_Data_5_Factors_2x3_daily", "famafrench")[0]
-    ff.index = pd.to_datetime(ff.index)
-    ff = ff.rename(columns={"Mkt-RF": "Mkt_RF"})
+    ff = _download_famafrench_5f_daily()
 
     aapl = yf.download("AAPL", start="2000-01-01", end="2023-12-01", auto_adjust=True, progress=False)
     if isinstance(aapl.columns, pd.MultiIndex):
