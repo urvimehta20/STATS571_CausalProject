@@ -7,6 +7,9 @@ import pandas as pd
 
 from src.cdnots.core import CDNOTS, CDNOTSConfig
 from src.cdnots.metrics import precision_recall_f1
+from src.cdnots.project_io import ProjectPaths, get_logger
+
+LOGGER = get_logger("experiments.run_benchmark_pcmci")
 
 try:
     from tigramite import data_processing as pp
@@ -27,8 +30,8 @@ def generate_data(seed: int = 42, n_obs: int = 500):
 
 
 def run():
-    out_dir = Path("results/tables")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = ProjectPaths(Path("."))
+    paths.ensure_standard_dirs()
     df = generate_data()
     true_edges = {("X0", "X1"), ("X1", "X2")}
 
@@ -51,7 +54,9 @@ def run():
                     pcmci_edges.add((s, t))
         rows.append({"method": "PCMCI-ParCorr", **precision_recall_f1(pcmci_edges, true_edges)})
 
-    pd.DataFrame(rows).to_csv(out_dir / "benchmark_pcmci.csv", index=False)
+    output_path = paths.results_tables_dir / "benchmark_pcmci.csv"
+    pd.DataFrame(rows).to_csv(output_path, index=False)
+    LOGGER.info("Saved benchmark results to %s", output_path)
 
 
 if __name__ == "__main__":

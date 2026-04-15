@@ -28,6 +28,10 @@ from pathlib import Path
 
 import pandas as pd
 import statsmodels.api as sm
+from experiments.common import build_paths, load_famafrench_daily, load_macro_monthly
+from src.cdnots.project_io import get_logger
+
+LOGGER = get_logger("experiments.lecture13_graph_adjustment")
 
 
 def _parents_z(directed: pd.DataFrame, z: str) -> list[str]:
@@ -36,14 +40,9 @@ def _parents_z(directed: pd.DataFrame, z: str) -> list[str]:
     return parents
 
 
-def _load_famafrench(root: Path) -> pd.DataFrame:
-    p = root / "data" / "raw" / "famafrench_apple_daily.csv"
-    return pd.read_csv(p, parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
-
-
-def _load_macro(root: Path, country: str | None, cpi_diff: bool) -> pd.DataFrame:
-    p = root / "data" / "raw" / "macro_countries_monthly.csv"
-    df = pd.read_csv(p, parse_dates=["date"]).sort_values(["country", "date"])
+def _load_macro(paths_root: Path, country: str | None, cpi_diff: bool) -> pd.DataFrame:
+    paths = build_paths(paths_root)
+    df = load_macro_monthly(paths).sort_values(["country", "date"])
     if country:
         df = df[df["country"] == country].copy()
     if cpi_diff:
@@ -67,6 +66,7 @@ def main() -> None:
     args = parser.parse_args()
 
     root = args.project_root.resolve()
+    paths = build_paths(root)
     dig_path = root / "discovery2" / "outputs" / f"cdnod_{args.tag}_directed_edges.csv"
     if not dig_path.is_file():
         raise FileNotFoundError(
@@ -78,7 +78,7 @@ def main() -> None:
     if args.tag.startswith("macro"):
         df = _load_macro(root, args.country, args.cpi_diff)
     else:
-        df = _load_famafrench(root)
+        df = load_famafrench_daily(paths)
 
     z_col = args.z
     y_col = args.y
@@ -87,19 +87,21 @@ def main() -> None:
 
     parents = _parents_z(directed, z_col)
     skip = {z_col, y_col, "Date", "date", "country"}
-    L = [p for p in parents if p not in skip and p in df.columns]
+    graph_controls = [p for p in parents if p not in skip and p in df.columns]
     missing_parents = [p for p in parents if p not in df.columns and p not in skip]
     if missing_parents:
-        print(f"Note: parents of Z not in data (skipped): {missing_parents}")
+        LOGGER.warning("Parents of Z missing in data and skipped: %s", missing_parents)
 
     extras = [c for c in args.extra_controls if c in df.columns]
-    regressors = [z_col] + L + extras
+    regressors = [z_col] + graph_controls + [c for c in extras if c not in graph_controls and c != z_col]
     use = df[[y_col] + regressors].dropna()
 
     if args.lag_z:
         use = use.copy()
         use[z_col] = use[z_col].shift(args.lag_z)
         use = use.dropna()
+    if use.empty:
+        raise ValueError("No usable rows remain after filtering/lagging; adjust inputs or lag settings.")
 
     X = sm.add_constant(use[regressors])
     y = use[y_col]
@@ -107,19 +109,18 @@ def main() -> None:
 
     print("=== Lecture 13 heuristic: backdoor adjustment via parents(Z) in directed CD-NOD subgraph ===")
     print(f"Tag={args.tag}  Z={z_col}" + (f" (lag {args.lag_z})" if args.lag_z else "") + f"  Y={y_col}")
-    print(f"Adjustment set L (from graph) = {L}")
+    print(f"Adjustment set L (from graph) = {graph_controls}")
     if extras:
         print(f"Extra controls (user) = {extras}")
     print(model.summary())
 
-    out = root / "results" / "tables"
-    out.mkdir(parents=True, exist_ok=True)
+    out = paths.results_tables_dir
     row = {
         "tag": args.tag,
         "z": z_col,
         "y": y_col,
         "lag_z": args.lag_z,
-        "L_graph": ";".join(L),
+        "L_graph": ";".join(graph_controls),
         "L_extra": ";".join(extras),
         "coef_z": float(model.params[z_col]),
         "se_z": float(model.bse[z_col]),
@@ -127,8 +128,9 @@ def main() -> None:
         "n": int(model.nobs),
         "r2": float(model.rsquared),
     }
-    pd.DataFrame([row]).to_csv(out / f"lecture13_adjust_{args.tag}_{z_col}_{y_col}.csv", index=False)
-    print(f"\nSaved: {out / f'lecture13_adjust_{args.tag}_{z_col}_{y_col}.csv'}")
+    output_path = out / f"lecture13_adjust_{args.tag}_{z_col}_{y_col}.csv"
+    pd.DataFrame([row]).to_csv(output_path, index=False)
+    LOGGER.info("Saved: %s", output_path)
 
 
 if __name__ == "__main__":

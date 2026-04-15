@@ -5,10 +5,14 @@ import re
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
+from src.cdnots.project_io import get_logger
+
+LOGGER = get_logger("experiments.draw_causal_graphs")
 
 
 def _sanitize(name: str) -> str:
@@ -57,6 +61,7 @@ def draw_group_graph(df: pd.DataFrame, title: str, output_path: Path) -> None:
         g.add_edge(src, dst)
 
     if g.number_of_nodes() == 0:
+        LOGGER.warning("Skipping empty graph for output %s", output_path)
         return
 
     nodes = sorted(g.nodes())
@@ -133,6 +138,7 @@ def draw_group_graph(df: pd.DataFrame, title: str, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_path, dpi=200, bbox_inches="tight")
     plt.close()
+    LOGGER.info("Saved: %s", output_path)
 
 
 def main() -> None:
@@ -157,6 +163,8 @@ def main() -> None:
 
     input_path = Path(args.input)
     out_dir = Path(args.out_dir)
+    if not input_path.is_file():
+        raise FileNotFoundError(f"Input file not found: {input_path}")
     df = pd.read_csv(input_path)
 
     required = {"from", "to"}
@@ -179,15 +187,11 @@ def main() -> None:
             title = f"{prefix} ({group_col}={group_value})"
             draw_group_graph(sub, title, out_png)
             draw_group_graph(sub, title, out_pdf)
-            print(f"Saved: {out_png}")
-            print(f"Saved: {out_pdf}")
     else:
         out_png = out_dir / f"{prefix}.png"
         out_pdf = out_dir / f"{prefix}.pdf"
         draw_group_graph(df, prefix, out_png)
         draw_group_graph(df, prefix, out_pdf)
-        print(f"Saved: {out_png}")
-        print(f"Saved: {out_pdf}")
 
 
 if __name__ == "__main__":

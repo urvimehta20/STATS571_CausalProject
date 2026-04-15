@@ -5,6 +5,10 @@ from pathlib import Path
 import pandas as pd
 
 from src.cdnots.core import CDNOTS, CDNOTSConfig
+from src.cdnots.project_io import get_logger
+from experiments.common import build_paths, edges_to_rows, load_macro_monthly
+
+LOGGER = get_logger("experiments.run_case_macro_countries")
 
 
 def preprocess_country(df: pd.DataFrame) -> pd.DataFrame:
@@ -16,12 +20,8 @@ def preprocess_country(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def run():
-    in_path = Path("data/raw/macro_countries_monthly.csv")
-    if not in_path.exists():
-        raise FileNotFoundError("Run scripts/download_macro_data.py first.")
-    df = pd.read_csv(in_path, parse_dates=["date"])
-    out_dir = Path("results/tables")
-    out_dir.mkdir(parents=True, exist_ok=True)
+    paths = build_paths(Path("."))
+    df = load_macro_monthly(paths)
     rows = []
     for country, sub in df.groupby("country"):
         pre = preprocess_country(sub)
@@ -29,8 +29,7 @@ def run():
             continue
         model = CDNOTS(CDNOTSConfig(max_lag=1, ci_method="parcorr", alpha=0.05))
         g = model.fit(pre)["graph"]
-        for u, v in g.edges():
-            rows.append({"scope": country, "from": u, "to": v})
+        rows.extend(edges_to_rows(g.edges(), key_name="scope", key_value=str(country)))
 
     pooled = df.copy()
     pooled["country_code"] = pooled["country"].astype("category").cat.codes
@@ -38,10 +37,11 @@ def run():
     pooled["ppi_change"] = pooled["ppi"].pct_change() * 100.0
     pooled = pooled[["unemployment", "cpi_change", "ppi_change", "country_code"]].dropna()
     g = CDNOTS(CDNOTSConfig(max_lag=1, ci_method="kcit_hbe", alpha=0.05)).fit(pooled)["graph"]
-    for u, v in g.edges():
-        rows.append({"scope": "pooled", "from": u, "to": v})
+    rows.extend(edges_to_rows(g.edges(), key_name="scope", key_value="pooled"))
 
-    pd.DataFrame(rows).to_csv(out_dir / "case_macro_edges.csv", index=False)
+    output_path = paths.results_tables_dir / "case_macro_edges.csv"
+    pd.DataFrame(rows).to_csv(output_path, index=False)
+    LOGGER.info("Saved case-study edges to %s", output_path)
 
 
 if __name__ == "__main__":

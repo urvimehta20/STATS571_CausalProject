@@ -57,3 +57,14 @@ Generated outputs:
   - Yahoo Finance.
   - FRED-compatible country macro series.
 
+## Master Planning Docs
+
+- Deep technical roadmap: `docs/master_plan.md`
+- Project narrative and results context: `FINAL_PROJECT_WRITEUP.md`
+
+The master plan explicitly tracks:
+- paper intent vs implemented features,
+- current approximation boundaries,
+- test/validation maturity,
+- prioritized remaining implementation work.
+

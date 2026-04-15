@@ -13,12 +13,15 @@ from pathlib import Path
 
 import pandas as pd
 import statsmodels.api as sm
+from src.cdnots.project_io import get_logger
+from experiments.common import build_paths, load_famafrench_daily
+
+LOGGER = get_logger("experiments.run_effect_smb_hml")
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parents[1]
-    path = root / "data" / "raw" / "famafrench_apple_daily.csv"
-    df = pd.read_csv(path, parse_dates=["Date"]).sort_values("Date").reset_index(drop=True)
+    paths = build_paths(Path(__file__).resolve().parents[1])
+    df = load_famafrench_daily(paths)
     cols = ["SMB", "HML", "Mkt_RF", "RMW", "CMA"]
     df = df.dropna(subset=cols)
 
@@ -39,8 +42,7 @@ def main() -> None:
     print("\n=== HML ~ SMB + same controls, same day (associational) ===")
     print(m_contemp.summary())
 
-    out = root / "results" / "tables"
-    out.mkdir(parents=True, exist_ok=True)
+    out = paths.results_tables_dir
     rows = [
         {
             "spec": "lagged_SMB",
@@ -60,7 +62,7 @@ def main() -> None:
         },
     ]
     pd.DataFrame(rows).to_csv(out / "effect_smb_hml.csv", index=False)
-    print(f"\nSaved summary: {out / 'effect_smb_hml.csv'}")
+    LOGGER.info("Saved summary: %s", out / "effect_smb_hml.csv")
 
 
 if __name__ == "__main__":

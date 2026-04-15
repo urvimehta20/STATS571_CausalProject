@@ -6,6 +6,10 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 from src.cdnots.core import CDNOTS, CDNOTSConfig
+from src.cdnots.project_io import get_logger
+from experiments.common import build_paths, edges_to_rows, load_famafrench_daily
+
+LOGGER = get_logger("experiments.run_case_famafrench_apple")
 
 
 PERIODS = [
@@ -16,29 +20,25 @@ PERIODS = [
 
 
 def run():
-    in_path = Path("data/raw/famafrench_apple_daily.csv")
-    if not in_path.exists():
-        raise FileNotFoundError("Run scripts/download_famafrench_apple.py first.")
-    df = pd.read_csv(in_path, index_col=0, parse_dates=True)
-    out_dir = Path("results/tables")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    figs = Path("results/figures")
-    figs.mkdir(parents=True, exist_ok=True)
+    paths = build_paths(Path("."))
+    df = load_famafrench_daily(paths, index_by_date=True)
     edge_rows = []
+    selected_columns = ["Mkt_RF", "SMB", "HML", "RMW", "CMA", "AAPL_RET"]
     for start, end, tag in PERIODS + [("2000-01-01", "2022-12-31", "full")]:
         cut = df.loc[start:end].dropna().copy()
         if cut.empty:
             continue
-        cols = ["Mkt_RF", "SMB", "HML", "RMW", "CMA", "AAPL_RET"]
         model = CDNOTS(CDNOTSConfig(max_lag=4, ci_method="kcit_hbe", alpha=0.05, max_condition_set=2))
-        res = model.fit(cut[cols])
-        for u, v in res["graph"].edges():
-            edge_rows.append({"period": tag, "from": u, "to": v})
-    pd.DataFrame(edge_rows).to_csv(out_dir / "case_famafrench_apple_edges.csv", index=False)
+        result = model.fit(cut[selected_columns])
+        edge_rows.extend(edges_to_rows(result["graph"].edges(), key_name="period", key_value=tag))
+    edges_path = paths.results_tables_dir / "case_famafrench_apple_edges.csv"
+    pd.DataFrame(edge_rows).to_csv(edges_path, index=False)
 
-    df[["Mkt_RF", "SMB", "HML", "RMW", "CMA", "AAPL_RET"]].plot(subplots=True, figsize=(10, 9), legend=False)
+    df[selected_columns].plot(subplots=True, figsize=(10, 9), legend=False)
     plt.tight_layout()
-    plt.savefig(figs / "case_famafrench_apple_series.png", dpi=150)
+    figure_path = paths.results_figures_dir / "case_famafrench_apple_series.png"
+    plt.savefig(figure_path, dpi=150)
+    LOGGER.info("Saved case-study outputs to %s and %s", edges_path, figure_path)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,9 @@ from pathlib import Path
 
 import pandas as pd
 from pandas_datareader import data as pdr
+from src.cdnots.project_io import ProjectPaths, get_logger
+
+LOGGER = get_logger("scripts.download_macro_data")
 
 
 FRED_SERIES = {
@@ -17,8 +20,8 @@ FRED_SERIES = {
 
 
 def main() -> None:
-    raw_dir = Path("data/raw")
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    paths = ProjectPaths(Path("."))
+    paths.ensure_standard_dirs()
     start, end = "2000-01-01", "2024-12-01"
     rows = []
     for country, mapping in FRED_SERIES.items():
@@ -37,8 +40,9 @@ def main() -> None:
     if not rows:
         raise RuntimeError("No macroeconomic series could be downloaded from FRED.")
     final = pd.concat(rows, ignore_index=True)
-    final.to_csv(raw_dir / "macro_countries_monthly.csv", index=False)
-    print(f"Saved {len(final)} rows to data/raw/macro_countries_monthly.csv")
+    output_path = paths.raw_data_dir / "macro_countries_monthly.csv"
+    final.to_csv(output_path, index=False)
+    LOGGER.info("Saved %s rows to %s", len(final), output_path)
 
 
 if __name__ == "__main__":

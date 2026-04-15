@@ -1,96 +1,255 @@
 # Causal Discovery for Nonstationary Financial Time Series
 
-## Introduction
+## Executive Summary
 
-This project implements and evaluates **causal discovery** on observational financial and macroeconomic time series, centered on the framework of **CD-NOTS**: constraint-based discovery allowing **nonstationarity**, **lags**, and **nonlinear** dependence. The motivating fact is that many series violate assumptions behind simpler methods (stationarity, no lag structure, linear Gaussian structure), which can distort both graphs and any downstream estimands.
+This project delivers a reproducible causal-discovery workflow for nonstationary financial
+and macroeconomic time series, centered on a CD-NOTS-style implementation and companion
+CD-NOD experiments. The repository is designed to support both methodological evaluation
+and practical downstream use: graph artifacts are exported in explicit contracts and can
+be consumed by regression workflows with transparent adjustment logic.
 
-We distinguish two layers:
+The implementation currently includes:
 
-1. **Structure learning** (which variables appear adjacent or directed in a graph under CI-based rules and context).
-2. **Treatment-style estimands** after a graph is fixed, using **regression adjustment** on an explicit covariate set.
+- a modular CD-NOTS-style pipeline with staged skeleton/orientation logic,
+- simulation and benchmark workflows (including PCMCI comparison),
+- case studies on Fama-French + Apple and multi-country macro series,
+- graph-guided post-discovery regressions with HAC standard errors.
 
-The repository therefore contains: (i) a custom **CD-NOTS**-style pipeline (simulations, PCMCI benchmark, case-study edge tables), (ii) **causal-learn**’s **CD-NOD** on the same raw CSVs with a **context index**, and (iii) **OLS with HAC standard errors** linking the directed subgraph to reported coefficients.
+It also explicitly documents fidelity boundaries: some method labels are exposed through
+a unified CI interface, but non-ParCorr internals currently use fallback behavior, and
+stage-4 orientation remains a Meek-like approximation rather than full module-change parity.
 
-**Research questions.** (a) Can we **export** and **reuse** discovered structure (directed vs. undirected) for transparent regression estimands rather than figures alone?
+## 1) Motivation and Research Objective
 
-## Dataset
+Many real-world financial and macroeconomic series are characterized by:
 
-We use two public datasets aligned with feasible case studies:
+- nonstationary behavior,
+- lag-dependent causal effects,
+- nonlinear relationships,
+- heterogeneous context (time regime or country identity).
 
-1. **Fama–French + Apple (daily, 2000–2022)**  
-   Five Fama–French daily factors (`Mkt_RF`, `SMB`, `HML`, `RMW`, `CMA`, `RF` as available) and Apple returns (`AAPL_RET`), joined on trading dates. File: `data/raw/famafrench_apple_daily.csv`.
+These properties weaken classical assumptions behind simpler structure-learning methods.
+The goal of this project is to operationalize CD-NOTS-style discovery under those
+constraints and evaluate whether discovered structure can be reused downstream for
+interpretable, auditable estimand workflows.
 
-2. **Macroeconomic panel (monthly, 2000–2023)**  
-   Unemployment, CPI, and PPI for six countries (US, Canada, Japan, France, UK, Italy). CPI/PPI in **month-over-month percent change** where applicable. File: `data/raw/macro_countries_monthly.csv`.
+This report addresses three questions:
 
-## Potential outcomes and identification:
+1. Can we implement a robust, modular nonstationary discovery pipeline?
+2. Can we produce reproducible outputs suitable for benchmarking and case analysis?
+3. Can structure outputs be converted into transparent, graph-guided adjustment analyses?
 
-**Observational units.** Index trading days by \(i = 1,\ldots,n\) for the daily panel, or country–months for macro. There is **no randomized assignment** of factor or macro realizations (contrast with NSW in HW2). Thus the **difference in means** \(\hat{\tau} = \bar{Y}_1 - \bar{Y}_0\) from HW1/HW2 is **not** automatically unbiased for a causal effect; randomization inference and Neyman-style variance formulas apply to **experiments**, not to passive factor returns.
+## 2) Data Assets and Construction
 
-**Hypothetical interventions.** For a focal “treatment” variable \(Z_i\) (e.g. daily `RMW`) and outcome \(Y_i\) (e.g. `Mkt_RF`), one can still write **potential outcomes** \(Y_i(z)\) under a notional intervention that sets \(Z\) to level \(z\), and define unit-level effects \(Y_i(z) - Y_i(z')\). For continuous \(Z\), the regression coefficient on \(Z\) in a linear model is a **linear approximation** to a dose-response slope, not the same object as \(\hat{\tau}\) for a binary experiment unless the structural model is linear and correctly specified.
+### 2.1 Fama-French + Apple (daily)
 
-**Adjustment set \(L\).** Under a **causal DAG** assumed to hold, if \(L\) **blocks all backdoor paths** from \(Z\) to \(Y\), then a conditional mean model \(E[Y \mid Z, L]\) identifies the effect of \(Z\) on \(Y\) under standard assumptions (HW2’s regression ideas are the same *conditioning* logic, with \(X\) playing the role of confounders). Here \(L\) is built as **parents(\(Z\))** in the **directed** part of a **CD-NOD** output, intersected with observed columns—explicitly a **heuristic** because the learned graph is only an estimate and may be a **PDAG**.
+- Source: Kenneth French factor library + Yahoo Finance.
+- Coverage: daily frequency over the project-defined period.
+- Core fields: `Mkt_RF`, `SMB`, `HML`, `RMW`, `CMA`, `RF`, `AAPL_RET`.
+- Output file: `data/raw/famafrench_apple_daily.csv`.
 
-**SUTVA / consistency.** We need a stable link between observed \((Y_i, Z_i, L_i)\) and the hypothetical \(Y_i(z)\): e.g. factor definitions and data construction do not change discretely mid-sample; no “hidden versions” of what `RMW` means. **Violations** include structural breaks, unmodeled common shocks hitting all factors, and misspecification of lags—analogous to spillovers or multiple treatment versions discussed in HW1.
+### 2.2 Macroeconomic panel (monthly)
 
-**Faithfulness and Markov properties.** CI tests used in discovery assume **faithfulness** (independences in data match \(d\)-separation in some generating graph) and **sufficient conditioning** for nonstationarity (time or country **context** in CD-NOD). These can fail under measurement error, hidden confounding, or finite-sample CI errors.
+- Source: FRED-compatible country series.
+- Countries: US, CA, JP, FR, GB, IT.
+- Fields: unemployment, CPI, PPI (with transformation in case-study pipelines as needed).
+- Output file: `data/raw/macro_countries_monthly.csv`.
 
-## Methods
+Both datasets are generated by scripted, versioned workflows in `scripts/`, ensuring a
+re-runnable extraction path and explicit raw-data contracts.
 
-### CD-NOTS implementation (custom pipeline)
+## 3) Identification Lens and Causal Semantics
 
-1. **Stage 1 (construction):** Build lagged variables up to max lag \(L\) and add a time-index node \(T\).  
-2. **Stage 2 (skeleton):** Conditional independence testing; remove edges when independence is not rejected (default \(\alpha = 0.05\)).  
-3. **Stage 3 (orientation):** Temporal priors (\(T \to X\) for nonstationary nodes), lag directions, v-structures where supported.  
-4. **Stage 4 (closure):** Meek-style rules to orient additional edges.
+This repository is observational, not randomized. Therefore:
 
-**CI interface:** ParCorr, KCIT, RCoT, CMIknn naming under one API. 
+- structure discovery outputs are algorithmic estimates, not experimental truths;
+- regression estimates are assumption-conditional and should not be interpreted as
+  randomized average treatment effects.
 
-**Baseline:** PCMCI on matched synthetic settings.
+### 3.1 Potential-outcome perspective
 
-### Causal-learn CD-NOD on case-study CSVs
+For a focal treatment-like variable \(Z\) and outcome \(Y\), one may define potential
+outcomes \(Y(z)\), but identification depends on assumptions such as:
 
-- **API:** `causallearn.search.ConstraintBased.CDNOD`; driver `discovery2/run_causal_learn.py` calls `cdnod(data, c_indx, alpha)`.  
-- **Context \(c\_indx\):** For Fama–French + Apple, **integer time order** (row index after `dropna`); appended as node `context_time`. For macro, **integer country code**; single-country runs use constant context; pooled `--country all` uses `context_country`.  
-- **Outputs:** For each run tag (`cdnod_famafrench`, `cdnod_macro_US`, `cdnod_macro_all`): `*_nodes.csv`, `*_edges.csv`, `*_directed_edges.csv` (`from`, `to`), `*_undirected_edges.csv` (`node_a`, `node_b`), plus DOT/PNG (Graphviz `dot` or NetworkX fallback).
+- sufficient adjustment set,
+- consistency/SUTVA-type stability,
+- no critical hidden confounding,
+- faithful alignment between CI structure and graph semantics.
 
-### Graph-guided regression (post-discovery)
+### 3.2 Graph-guided adjustment in this project
 
-`experiments/lecture13_graph_adjustment.py` reads `cdnod_<tag>_directed_edges.csv`, sets \(L =\) **parents(\(Z\))** in that digraph (restricted to data columns), and estimates  
+`experiments/lecture13_graph_adjustment.py` uses directed CD-NOD outputs to define
+an adjustment candidate \(L = \text{parents}(Z)\) (intersected with observed columns),
+then estimates:
 
 \[
 Y_i = \beta_0 + \beta_Z Z_i + \beta_L^\top L_i + \varepsilon_i
 \]
 
-by **OLS** with **HAC** (Newey–West style) covariance—appropriate when \(\varepsilon_i\) may be serially correlated, unlike the i.i.d.-motivated variance formulas in HW1/HW2. When **parents(\(Z\))** is empty in the directed subgraph (e.g. `SMB` in one run), users may pass **`--extra-controls`** so \(L\) is still economically meaningful; when parents exist (e.g. **\(Z=\)** `RMW`, **\(Y=\)** `Mkt_RF` gives \(L=\{\texttt{SMB},\texttt{HML}\}\)), \(L\) is **graph-derived only**.
+with HAC covariance to account for time-series dependence. This is intentionally
+documented as a heuristic bridge between discovery outputs and estimand workflows.
 
-## Results
+## 4) Methodology and System Design
 
-The repository produces:
+### 4.1 CD-NOTS-style core implementation
 
-- **Simulation outputs:** Metrics (e.g. F1, precision, recall, SHD, runtime) across node/sample grids: `results/tables/simulation_metrics.csv`, `results/tables/simulation_summary.csv`.  
-- **Benchmark:** CD-NOTS vs PCMCI: `results/tables/benchmark_pcmci.csv`.  
-- **Custom CD-NOTS case studies:** `results/tables/case_famafrench_apple_edges.csv`, `results/tables/case_macro_edges.csv`.  
-- **Causal-learn CD-NOD artifacts:** `discovery2/outputs/cdnod_*` (CSVs + figures).  
-- **Illustrative graph-guided tables:** e.g. `results/tables/lecture13_adjust_famafrench_RMW_Mkt_RF.csv`, `results/tables/lecture13_adjust_famafrench_SMB_HML.csv`.
+Core package: `src/cdnots`
 
-**Qualitative takeaway:** Performance improves with sample size; CI choice matters; allowing **nonstationarity** and **context** is important for financial/macro series. 
+Pipeline stages:
 
-Regression coefficients are **assumption-dependent** (correct DAG, sufficient \(L\), linearity); they connect **estimated structure** to **numeric estimands** also, connects covariate adjustment to \(\hat{\tau}_{\mathrm{sta}}\)—but without experimental identification.
+1. **Lag/context construction**
+   - Build lagged feature space and include temporal context node `T`.
+2. **Skeleton discovery**
+   - Prune candidate edges via CI testing up to bounded conditioning-set size.
+3. **Stage-3 orientation**
+   - Apply temporal ordering, lag-direction rules, and v-structure orientation.
+4. **Stage-4 closure**
+   - Apply additional orientation via Meek-like closure logic.
 
-## Assumption diagnostics and sensitivity
+Engineering structure:
 
-Stress-tests aligned with both the paper and course material:
+- typed models (`CDNOTSConfig`, `CDNOTSResult`),
+- stage services (`SkeletonDiscoveryStage`, `OrientationStage`),
+- backward-compatible API (`fit`) plus typed API (`fit_result`).
 
-- Vary **CI method** (ParCorr, KCIT, RCoT, CMIknn), **max lag \(L\)**, and **\(\alpha\)**.  
-- **Pooled vs. segmented** time windows.  
-- **Causal-learn:** \(\alpha\) in `cdnod`, **US-only vs. pooled** macro context.  
-- **HAC lag length** in graph-guided regressions.
+### 4.2 CI testing interface
 
-## Limitations, conclusion, and future work
+`src/cdnots/ci_tests.py` centralizes CI dispatch and numerical stability behavior.
 
-**Limitations.** Stage 4 is a Meek-style approximation, not the full module-change statistic. Public data omit the paper’s Bloomberg case. **Discovery \(\neq\)** truth: directed edges are algorithm outputs; undirected edges are **not** used in the adjustment step. **No randomization** implies coefficients are **not** \(\hat{\tau}\) from a CRD without additional structural assumptions.
+- Current fully realized backend: ParCorr pathway with robust standardization and ridge residualization.
+- Current approximation: non-ParCorr labels route through controlled fallback logic.
+- Stability diagnostics: test counters for degeneracy and insufficient rows.
 
-**Conclusion.** The repo gives a **reproducible** path from **CD-NOTS-style** code through **causal-learn CD-NOD** on the same raw files to **explicit CSVs** and **HAC-adjusted** regressions—bridging **graph discovery** and **treatment-effect language** from STATS 571/671.
+### 4.3 CD-NOD workflow
 
-**Future work.** Richer kernel CIs; full module-change orientation; rolling-window **stability** analyses; broader asset and country coverage.
+Pipeline entrypoint: `discovery2/run_causal_learn.py`, backed by `discovery2/services.py`.
+
+Capabilities:
+
+- dataset-specific preprocessing with context construction,
+- CD-NOD execution,
+- adjacency decoding into directed and undirected contracts,
+- output persistence to DOT/CSV/PNG/PDF (Graphviz when available; fallback rendering otherwise).
+
+## 5) Experimental Design and Outputs
+
+### 5.1 Simulation study
+
+Script: `experiments/run_simulations.py`
+
+Produces:
+
+- `results/tables/simulation_metrics.csv`
+- `results/tables/simulation_summary.csv`
+- `results/figures/simulation_f1.png`
+- `results/tables/simulation_config.json`
+
+Tracks precision, recall, F1, SHD, runtime over node/sample grids and CI labels.
+
+### 5.2 Benchmark against PCMCI
+
+Script: `experiments/run_benchmark_pcmci.py`
+
+Output:
+
+- `results/tables/benchmark_pcmci.csv`
+
+### 5.3 Case studies
+
+Scripts:
+
+- `experiments/run_case_famafrench_apple.py`
+- `experiments/run_case_macro_countries.py`
+
+Outputs:
+
+- `results/tables/case_famafrench_apple_edges.csv`
+- `results/tables/case_macro_edges.csv`
+- `results/figures/case_famafrench_apple_series.png`
+
+### 5.4 Discovery artifact contracts
+
+Outputs under `discovery2/outputs/` include:
+
+- `cdnod_<tag>_edges.csv`
+- `cdnod_<tag>_directed_edges.csv`
+- `cdnod_<tag>_undirected_edges.csv`
+- `cdnod_<tag>_nodes.csv`
+- `cdnod_<tag>.dot`, `cdnod_<tag>.png`, `cdnod_<tag>.pdf` (if Graphviz available)
+
+## 6) Validation and Test Posture
+
+The repository includes coverage for:
+
+- core API compatibility and typed/legacy parity,
+- stage-level orientation/skeleton invariants,
+- CI tester fallback/stability behavior,
+- discovery decoding and schema contracts,
+- discovery service preprocessing guards,
+- CLI orchestration behavior via mocks,
+- shared experiment utility contracts.
+
+This test posture provides strong engineering confidence in contracts and control flow.
+Remaining validation work is primarily scientific-fidelity and end-to-end equivalence
+under pinned datasets.
+
+## 7) Key Findings (Current State)
+
+1. The project now supports a reproducible, modular discovery stack from raw data through
+   benchmark/case outputs.
+2. Output contracts are explicit and downstream-consumable.
+3. Performance and behavior are stable in quick-mode validation runs.
+4. Scientific interpretation must remain conditional on approximation boundaries in CI
+   backend fidelity and stage-4 orientation rules.
+
+## 8) Limitations and Fidelity Boundaries
+
+### 8.1 Method fidelity limitations
+
+- Non-ParCorr CI method labels are currently interface-compatible but not fully
+  distinct computational implementations.
+- Stage-4 orientation is approximate (Meek-like closure), not full module-change parity.
+
+### 8.2 Inference limitations
+
+- Discovery outputs should not be treated as ground-truth causal graphs.
+- Graph-guided adjustment uses estimated directed structure and remains assumption-sensitive.
+
+### 8.3 Data limitations
+
+- Public proxies are used instead of all paper-specific proprietary sources.
+- Results can shift with data revisions and dependency drift if not fully pinned.
+
+## 9) Professional Roadmap
+
+### Priority A: Scientific fidelity upgrades
+
+1. Implement method-specific KCIT/RCoT/CMIknn internals.
+2. Upgrade stage-4 orientation toward paper-faithful behavior.
+3. Add motif-level orientation correctness tests and calibration diagnostics.
+
+### Priority B: Reproducibility hardening
+
+1. Add pinned-slice golden tests for key workflows.
+2. Add end-to-end integration tests for major entrypoints.
+3. Introduce explicit tolerance thresholds for benchmark drift.
+
+### Priority C: Performance maturity
+
+1. Profile CI-heavy and orientation-heavy hotspots.
+2. Optimize only validated bottlenecks and preserve result parity via tests.
+
+### Priority D: Publication-quality packaging
+
+1. Add fidelity matrix summary to README.
+2. Add troubleshooting and environment reproducibility guidance.
+3. Maintain versioned method-status table linked to `docs/master_plan.md`.
+
+## 10) Conclusion
+
+This project now represents a strong engineering foundation for nonstationary causal
+discovery experiments in finance and macroeconomics, with clear modular boundaries,
+artifact contracts, and an expanding validation suite. It already supports rigorous
+workflow reproducibility and structured downstream analysis. The primary remaining work
+is scientific-fidelity completion: method-specific CI implementations and deeper
+orientation parity with the source methodology.
