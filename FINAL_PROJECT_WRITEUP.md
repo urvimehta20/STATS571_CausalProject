@@ -131,6 +131,20 @@ Capabilities:
 - adjacency decoding into directed and undirected contracts,
 - output persistence to DOT/CSV/PNG/PDF (Graphviz when available; fallback rendering otherwise).
 
+### 4.4 Identification diagnostics and falsification extensions
+
+To better align with course identification principles, the project now includes:
+
+- adjustment-set modes in graph-guided regression:
+  - `parents` (baseline),
+  - `minimal_backdoor` heuristic (parents plus shared parent structure),
+- identification-ambiguity flags when undirected adjacencies touch treatment/outcome/control neighborhoods,
+- hidden-confounding sensitivity proxies (partial-\(R^2\) and robustness-value summaries),
+- graph implication falsification checks that test implied independence constraints from discovered graph structure,
+- rolling-window stability analysis for both edge presence and treatment coefficients.
+
+These additions move the pipeline from a single-point estimate workflow toward assumption-audited causal reporting.
+
 ## 5) Experimental Design and Outputs
 
 ### 5.1 Simulation study
@@ -176,6 +190,16 @@ Outputs under `discovery2/outputs/` include:
 - `cdnod_<tag>_undirected_edges.csv`
 - `cdnod_<tag>_nodes.csv`
 - `cdnod_<tag>.dot`, `cdnod_<tag>.png`, `cdnod_<tag>.pdf` (if Graphviz available)
+
+### 5.5 New robustness and policy artifacts
+
+Additional outputs include:
+
+- `results/tables/graph_falsification_<tag>.csv`
+- `results/tables/rolling_stability_<tag>_<z>_<y>.csv`
+- `results/figures/rolling_stability_<tag>_<z>_<y>.png`
+- `results/tables/macro_policy_case_<country>_<outcome>.csv`
+- `results/figures/macro_policy_case_<country>_<outcome>.png`
 
 ## 6) Validation and Test Posture
 
@@ -245,7 +269,26 @@ under pinned datasets.
 2. Add troubleshooting and environment reproducibility guidance.
 3. Maintain versioned method-status table linked to `docs/master_plan.md`.
 
-## 10) Conclusion
+## 10) Rubric Mapping Checklist
+
+The final report is organized to map directly to STATS571 grading criteria:
+
+- **Problem and potential outcomes (+5%)**:
+  - explicit estimand definitions and potential-outcome framing in Sections 1 and 3.
+- **Method appropriateness (+20%)**:
+  - CD-NOTS/CD-NOD discovery, graph-guided adjustment, and macro DID/SCM extension in Sections 4 and 5.
+- **Identifying assumptions and failure analysis (+20%)**:
+  - assumption table + ambiguity flags + falsification diagnostics in Sections 3, 4.4, and 8.
+- **Results and visualization (+15%)**:
+  - simulation/benchmark/case artifacts plus robustness plots in Section 5.
+- **Proper interpretation (+10%)**:
+  - distinction between causal confidence and association in Sections 7 and 8.
+- **Sensitivity pathway (+5%)**:
+  - hidden-confounding sensitivity and rolling stability analyses in Sections 4.4 and 5.5.
+- **Clarity of report (+15%)**:
+  - modular sectioning, explicit caveats, and reproducible artifact references throughout.
+
+## 11) Conclusion
 
 This project now represents a strong engineering foundation for nonstationary causal
 discovery experiments in finance and macroeconomics, with clear modular boundaries,

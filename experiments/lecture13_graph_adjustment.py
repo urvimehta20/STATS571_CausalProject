@@ -28,6 +28,7 @@ from pathlib import Path
 
 import pandas as pd
 import statsmodels.api as sm
+from experiments.causal_diagnostics import candidate_controls_from_graph, graph_ambiguity_flag
 from experiments.common import build_paths, load_famafrench_daily, load_macro_monthly
 from src.cdnots.project_io import get_logger
 
@@ -52,6 +53,19 @@ def _load_macro(paths_root: Path, country: str | None, cpi_diff: bool) -> pd.Dat
     return df.reset_index(drop=True)
 
 
+def _hidden_confounding_sensitivity(t_stat: float, dof: float) -> tuple[float, float]:
+    """
+    Return a simple robustness proxy using partial R^2 style calculations.
+    Values closer to 1 imply stronger residualized treatment-outcome signal.
+    """
+    if dof <= 0:
+        return 0.0, 0.0
+    t_sq = float(t_stat) ** 2
+    partial_r2 = t_sq / (t_sq + dof) if (t_sq + dof) > 0 else 0.0
+    robustness_value = partial_r2 / (1.0 - partial_r2 + 1e-9)
+    return float(partial_r2), float(robustness_value)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Lecture 13-style OLS using CD-NOD directed edges.")
     parser.add_argument("--project-root", default=".", type=Path)
@@ -62,6 +76,12 @@ def main() -> None:
     parser.add_argument("--cpi-diff", action="store_true", help="Macro: use first difference of CPI as Y")
     parser.add_argument("--lag-z", type=int, default=0, help="Shift Z back this many rows (e.g. 1)")
     parser.add_argument("--hac-lags", type=int, default=5)
+    parser.add_argument(
+        "--adjustment-mode",
+        choices=["parents", "minimal_backdoor"],
+        default="parents",
+        help="Adjustment candidate mode from graph structure.",
+    )
     parser.add_argument("--extra-controls", nargs="*", default=[], help="Additional regressors (always included)")
     args = parser.parse_args()
 
@@ -74,6 +94,8 @@ def main() -> None:
             "then use matching --tag (e.g. famafrench or macro_US)."
         )
     directed = pd.read_csv(dig_path)
+    undig_path = root / "discovery2" / "outputs" / f"cdnod_{args.tag}_undirected_edges.csv"
+    undirected = pd.read_csv(undig_path) if undig_path.is_file() else None
 
     if args.tag.startswith("macro"):
         df = _load_macro(root, args.country, args.cpi_diff)
@@ -85,10 +107,16 @@ def main() -> None:
     if z_col not in df.columns or y_col not in df.columns:
         raise ValueError(f"Z={z_col} or Y={y_col} not in data columns: {list(df.columns)}")
 
-    parents = _parents_z(directed, z_col)
+    parent_controls = _parents_z(directed, z_col)
+    graph_controls = candidate_controls_from_graph(
+        treatment=z_col,
+        outcome=y_col,
+        directed_edges=directed,
+        mode=args.adjustment_mode,
+        available_columns=df.columns,
+    )
     skip = {z_col, y_col, "Date", "date", "country"}
-    graph_controls = [p for p in parents if p not in skip and p in df.columns]
-    missing_parents = [p for p in parents if p not in df.columns and p not in skip]
+    missing_parents = [p for p in parent_controls if p not in df.columns and p not in skip]
     if missing_parents:
         LOGGER.warning("Parents of Z missing in data and skipped: %s", missing_parents)
 
@@ -106,10 +134,21 @@ def main() -> None:
     X = sm.add_constant(use[regressors])
     y = use[y_col]
     model = sm.OLS(y, X).fit(cov_type="HAC", cov_kwds={"maxlags": args.hac_lags})
+    ambiguity_flag, ambiguity_reason = graph_ambiguity_flag(
+        treatment=z_col,
+        outcome=y_col,
+        undirected_edges=undirected,
+        selected_controls=graph_controls,
+    )
+    t_stat = float(model.tvalues[z_col]) if z_col in model.tvalues else 0.0
+    partial_r2, robustness_value = _hidden_confounding_sensitivity(t_stat=t_stat, dof=float(model.df_resid))
 
     print("=== Lecture 13 heuristic: backdoor adjustment via parents(Z) in directed CD-NOD subgraph ===")
     print(f"Tag={args.tag}  Z={z_col}" + (f" (lag {args.lag_z})" if args.lag_z else "") + f"  Y={y_col}")
+    print(f"Adjustment mode = {args.adjustment_mode}")
     print(f"Adjustment set L (from graph) = {graph_controls}")
+    if ambiguity_flag:
+        print(f"Identification ambiguity flag: {ambiguity_reason}")
     if extras:
         print(f"Extra controls (user) = {extras}")
     print(model.summary())
@@ -120,11 +159,17 @@ def main() -> None:
         "z": z_col,
         "y": y_col,
         "lag_z": args.lag_z,
+        "adjustment_mode": args.adjustment_mode,
         "L_graph": ";".join(graph_controls),
         "L_extra": ";".join(extras),
+        "graph_ambiguity_flag": int(ambiguity_flag),
+        "graph_ambiguity_reason": ambiguity_reason,
         "coef_z": float(model.params[z_col]),
         "se_z": float(model.bse[z_col]),
         "pvalue_z": float(model.pvalues[z_col]),
+        "t_z": t_stat,
+        "partial_r2_z": partial_r2,
+        "robustness_value_z": robustness_value,
         "n": int(model.nobs),
         "r2": float(model.rsquared),
     }
