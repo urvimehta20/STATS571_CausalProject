@@ -66,7 +66,7 @@ Interpretation:
 | Stage-4 orientation (module-change style) | Approximate Meek-like closure | `src/cdnots/stages.py` | Low-Medium |
 | CD-NOD workflow with persisted directed/undirected artifacts | Implemented | `discovery2/services.py`, `discovery2/io_utils.py` | High (engineering), Medium (scientific interpretation) |
 | Simulation and benchmark runners | Implemented | `experiments/run_simulations.py`, `experiments/run_benchmark_pcmci.py` | Medium |
-| Graph-guided adjustment workflow | Implemented as explicit heuristic | `experiments/lecture13_graph_adjustment.py` | Medium |
+| Graph-guided adjustment workflow | Implemented as explicit heuristic | `experiments/class_oriented_graph_adjustment.py` | Medium |
 
 ---
 

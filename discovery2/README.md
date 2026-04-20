@@ -28,11 +28,11 @@ python discovery2/run_causal_learn.py --dataset macro --country all
 - `cdnod_<run>_undirected_edges.csv` — ambiguous / undirected pairs
 - `cdnod_<run>_nodes.csv`, plus `.png` / `.pdf` / `.dot` when Graphviz is available
 
-## Lecture-style follow-up (e.g. Lecture 13 adjustment)
+## Class-oriented follow-up
 
 ```bash
-python -m experiments.lecture13_graph_adjustment --tag famafrench --z SMB --y HML
-python -m experiments.lecture13_graph_adjustment --tag macro_US --z unemployment --y cpi \
+python -m experiments.class_oriented_graph_adjustment --tag famafrench --z SMB --y HML
+python -m experiments.class_oriented_graph_adjustment --tag macro_US --z unemployment --y cpi \
   --country US --cpi-diff --extra-controls ppi
 ```
 

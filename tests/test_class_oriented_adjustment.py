@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import unittest
 
-from experiments.lecture13_graph_adjustment import _hidden_confounding_sensitivity
+from experiments.class_oriented_graph_adjustment import _hidden_confounding_sensitivity
 
 
-class Lecture13AdjustmentTests(unittest.TestCase):
+class ClassOrientedAdjustmentTests(unittest.TestCase):
     def test_hidden_confounding_sensitivity_increases_with_t_stat(self) -> None:
         low_partial, low_rv = _hidden_confounding_sensitivity(t_stat=1.0, dof=100.0)
         high_partial, high_rv = _hidden_confounding_sensitivity(t_stat=5.0, dof=100.0)

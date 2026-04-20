@@ -1,0 +1,367 @@
+\documentclass[12pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{setspace}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{amsmath}
+\usepackage{hyperref}
+\usepackage{float}
+\usepackage{enumitem}
+
+\hypersetup{hidelinks}
+\singlespacing
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.5em}
+\setlength{\intextsep}{8pt}
+\setlength{\textfloatsep}{10pt}
+\sloppy
+
+\title{STATS 571 Final Project Report\\Causal Discovery for Nonstationary Financial Time Series}
+\author{Deepan Islam \\ Urvi Mehta \\ Santosh Desai}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\textbf{Project summary.} Our goal was to reproduce the CD-NOTS paper and then write the final
+report using the notation and logic from class. After checking the paper against the code and the
+saved outputs, we do not think the current repository is a full scientific replication. It does
+recover the broad workflow: lag construction, a context node, graph pruning by conditional
+independence tests, orientation rules, and graph artifacts for downstream analysis. But the main
+fidelity gap is still important. The advertised KCIT, RCoT, and CMIknn options still route back to
+partial correlation, stage 4 is an approximate closure step, and the saved benchmark does not
+reproduce the paper's claim that CD-NOTS beats PCMCI. So the honest write-up is a course-oriented
+causal analysis built on a reproducible CD-NOTS-style scaffold.
+
+\section*{1. Problem Statement and Causal Question}
+
+The paper studies causal discovery for financial time series that are nonstationary and contain
+lagged dependence. That is a natural final-project setting for a causal inference course because it
+forces the same questions that show up in observational studies more generally. There is no
+randomized treatment assignment. Economically important variables move together. Overlap can be weak
+in some parts of the sample. Hidden bias is always plausible.
+
+Our project asks two linked questions. First, does the repository reproduce the paper's discovery
+workflow well enough to recover a useful working graph on financial and macroeconomic data? Second,
+once we have that working graph, can we translate the downstream analysis into the language of class
+by stating an estimand, an identification argument, an adjustment set, and the main threats to that
+argument?
+
+As we discussed in Lecture 13 titled: \textit{Recap: Confounding and Causal DAGs}, a learned graph
+is only useful if it helps us separate causal paths from noncausal ones. As we discussed in Lecture
+15 titled: \textit{Methods for adjustment beyond stratification}, an observational estimate only
+earns a causal interpretation after we say what assumptions identify it. That is the standard we
+use throughout the report.
+
+\section*{2. Data and Effective Unit of Analysis}
+
+The repository uses two public datasets.
+
+\textbf{Fama-French plus Apple.} The file \texttt{famafrench\_apple\_daily.csv} contains 6,016
+daily observations from 2000-01-04 through 2023-11-30. The financial variables used in the case
+study are \texttt{Mkt\_RF}, \texttt{SMB}, \texttt{HML}, \texttt{RMW}, \texttt{CMA}, \texttt{RF},
+and \texttt{AAPL\_RET}.
+
+\textbf{Multi-country macro panel.} The file \texttt{macro\_countries\_monthly.csv} contains 1,800
+monthly observations from 2000-01-31 through 2024-12-31, with 300 rows each for \texttt{CA},
+\texttt{FR}, \texttt{GB}, \texttt{IT}, \texttt{JP}, and \texttt{US}. The main variables are
+unemployment, CPI, and PPI.
+
+The effective unit is not a person, hospital, or firm. After lagging and preprocessing, the
+analysis unit is a date-specific record together with the observed history carried into that row.
+That is already a warning sign from a class perspective. The usual superpopulation story is much
+less natural here than it is in the standard i.i.d. examples from lecture, so every identifying
+assumption has to be read with that limitation in mind.
+
+\section*{3. Case Setup in Class Notation}
+
+As we discussed in Lecture 15 titled: \textit{Methods for adjustment beyond stratification}, the
+write-up has to define \(Z\), \(Y\), \(X\), and the assignment space before it talks about
+estimators.
+
+\subsection*{3.1 Financial case}
+
+Let \(t=1,\dots,T_F\) index trading days after preprocessing. In the main financial regression, we
+set
+\[
+Z_t = SMB_t, \qquad Y_t = HML_t.
+\]
+Let \(X_t \in \mathcal{X}_F\) denote the observed covariates and lagged history available at day
+\(t\). In this project, that means the observed factor returns, the risk-free rate, the time
+context carried by the graph pipeline, and any lagged variables produced upstream. Let
+\(L_t \subseteq X_t\) denote the graph-derived adjustment set. In the saved run, the class-oriented
+adjustment step uses \(L_t = \{RMW_t\}\).
+
+To keep the notation close to class, let \(\Omega_F\) denote the set of feasible financial exposure
+paths \((z_1,\dots,z_{T_F})\) over the study window. Because this is observational time-series
+data, \(\Omega_F\) is not known from a design the way it would be in a randomized experiment. It is
+only a conceptual assignment space. The class-style estimand is the dose-response contrast
+\[
+\tau_F(z,z') = E\{Y_t(z) - Y_t(z')\},
+\]
+where \(Y_t(z)\) is the potential value of \(HML_t\) under an intervention setting \(SMB_t=z\).
+
+The identifying assumptions are the usual ones, but translated carefully to this setting.
+Consistency means the observed \(HML_t\) equals \(Y_t(Z_t)\). SUTVA means the potential outcome at
+time \(t\) does not depend on unmodeled assignments outside the lagged history already encoded in
+the row. Conditional exchangeability means
+\[
+\{Y_t(z): z \in \Omega_F\} \perp Z_t \mid X_t.
+\]
+The overlap statement from lecture is harder because the exposure is continuous. The practical
+reading is that, within relevant values of \(X_t\), the data must contain enough variation in SMB
+that the regression is not pure extrapolation.
+
+\subsection*{3.2 Macro case}
+
+Let \(t=1,\dots,T_M\) index the monthly US observations used in the saved macro run. Here the focal
+variables are
+\[
+Z_t = unemployment_t, \qquad Y_t = \Delta cpi_t,
+\]
+with the differenced CPI series stored back into the \texttt{cpi} column before estimation. Let
+\(X_t \in \mathcal{X}_M\) denote the observed macro history available at month \(t\), including PPI,
+time context, and the lagged information retained by preprocessing. In the saved run the graph does
+not produce a clean adjustment set near the treatment-outcome pair, so \(L_t\) is effectively empty
+and the script raises an ambiguity warning.
+
+Let \(\Omega_M\) denote the set of feasible unemployment paths over the study window. Again this is
+conceptual rather than design-based. The natural class-style estimand is
+\[
+\tau_M(z,z') = E\{Y_t(z) - Y_t(z')\}.
+\]
+Consistency means the observed CPI increment equals the potential outcome under the realized
+unemployment level. SUTVA means that, once the chosen lag structure is fixed, the potential CPI
+increment at month \(t\) does not depend on unmodeled spillovers or outside shocks that alter the
+assignment process. Conditional exchangeability would require
+\[
+\{Y_t(z): z \in \Omega_M\} \perp Z_t \mid X_t,
+\]
+which is a strong claim in macro data. The overlap issue is also sharper here because the sample is
+small and trending.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.18\textwidth} X X}
+\toprule
+\textbf{Object} & \textbf{Financial case} & \textbf{Macro case} \\
+\midrule
+Unit & Trading day \(t\) after preprocessing and lagging & US month \(t\) after preprocessing \\
+\(Z\) & \(SMB_t\) & \(unemployment_t\) \\
+\(Y\) & \(HML_t\) & \(\Delta cpi_t\), stored in the \texttt{cpi} column after differencing \\
+\(X\) & Observed factor returns, risk-free rate, time context, and lagged history available at \(t\) & Observed macro covariates, time context, PPI, and lagged history available at \(t\) \\
+\(L\) & Graph-derived set; saved run uses \(\{RMW_t\}\) & No clean set in the saved run because the graph stays partially undirected \\
+\(\Omega\) & Feasible SMB exposure paths over the sample window & Feasible unemployment paths over the sample window \\
+SUTVA-style reading & No unmodeled interference across dates once the chosen lags absorb the relevant history & No unmodeled macro spillovers beyond the chosen monthly history \\
+\bottomrule
+\end{tabularx}
+\caption{The two case studies written in the notation from class.}
+\end{table}
+
+\section*{4. Working DAG, Backdoor Paths, and Adjustment}
+
+As we discussed in Lecture 13 titled: \textit{The Backdoor Criterion}, confounding is easiest to
+see by thinking about paths. A backdoor path from \(Z\) to \(Y\) is any noncausal path that starts
+with an arrow into \(Z\). If conditioning on a set \(L\) blocks every open backdoor path, and \(L\)
+contains no descendants of treatment, then \(L\) satisfies the backdoor criterion.
+
+That is exactly how we read the discovery output. The graph returned by the repository is not known
+truth. It is an estimated graph. Still, once we have a directed subgraph, we can use it as a
+working DAG for choosing candidate controls. The script \texttt{class\_oriented\_graph\_adjustment.py}
+does this directly: it reads the directed CD-NOD output, builds a candidate adjustment set from the
+parents of \(Z\), and fits
+\[
+E(Y_t \mid Z_t, L_t) = \beta_0 + \beta_Z Z_t + \beta_L^\top L_t.
+\]
+
+The important limitation is the same one we discussed in class. If the graph is wrong, then the
+adjustment set can be wrong. If the graph remains partially directed near treatment and outcome,
+identification is unsettled. The macro case shows this clearly. The saved run keeps unemployment
+and CPI as undirected neighbors, so the script correctly flags the result as graph-ambiguous.
+
+\section*{5. Estimation Strategy and What It Is Not}
+
+As we discussed in Lecture 16 titled: \textit{Recap: Outcome regression / model standardization},
+the downstream estimator in this repository is best understood as outcome regression. Under
+consistency, conditional exchangeability, and overlap, the identifying formula is
+\[
+E\{Y_t(z)\} = E_{X_t}\left[E\{Y_t \mid Z_t=z, X_t\}\right].
+\]
+The implementation uses this logic in a simple linear form with HAC standard errors to account for
+serial dependence.
+
+This matters because it tells us what claim we are and are not making. The saved coefficients are
+not IPW estimates. They are not AIPW estimates. They are not TMLE estimates. As we discussed in
+Lecture 17 titled: \textit{Recap: Outcome Regression and Inverse Probability Weighting} and Lecture
+18 titled: \textit{Recap: Augmented Inverse Probability Weighting}, the repository never fits a
+propensity score model and never adds the augmentation term that gives AIPW its double robustness.
+So there is no insurance against one model being wrong. We have a graph-guided outcome regression,
+not a doubly robust observational-study pipeline.
+
+\section*{6. What the Code Actually Implements}
+
+The paper describes CD-NOTS as a four-stage procedure, and the repository follows that outline at a
+high level:
+\begin{enumerate}[leftmargin=1.5em]
+\item build lagged variables and add a context node,
+\item prune a dense graph with conditional independence tests,
+\item orient edges using time order, lag order, and v-structures,
+\item apply a final orientation step.
+\end{enumerate}
+
+The fidelity gap shows up in the details. In \texttt{ci\_tests.py}, the labels \texttt{kcit},
+\texttt{rcot}, and \texttt{cmiknn} still call the same fallback routine that uses partial
+correlation. Stage 4 also differs from the paper. The code uses a Meek-style closure approximation
+rather than the paper's change-in-mechanism rule.
+
+There is also a second graph path in \texttt{discovery2}. That workflow runs \texttt{causal-learn}
+CD-NOD directly on the datasets and exports directed and undirected edge files. The saved
+class-oriented regressions consume those graph artifacts. So the project has two layers: a
+CD-NOTS-style implementation for simulation and case-study workflows, and a CD-NOD artifact
+pipeline that feeds the downstream adjustment scripts.
+
+\section*{7. Results}
+
+\subsection*{7.1 Quick simulations and benchmark}
+
+The saved simulation files come from a quick run with node grids \(\{3,5\}\), observation grids
+\(\{50,150\}\), and five graphs per setting. The F1 scores are identical across
+\texttt{parcorr}, \texttt{kcit\_hbe}, \texttt{rcot\_hbe}, and \texttt{cmiknn}: 0.333 for 3 nodes
+with 50 observations, 0.200 for 5 nodes with 50 observations, 0.300 for 3 nodes with 150
+observations, and 0.408 for 5 nodes with 150 observations. Once we know that the non-ParCorr
+labels still fall back to ParCorr, this pattern is exactly what we should expect.
+
+The benchmark against PCMCI is the clearest sign that the replication is incomplete. The file
+\texttt{benchmark\_pcmci.csv} reports precision, recall, and F1 of 0 for the current CD-NOTS
+implementation and 1 for PCMCI-ParCorr. That result runs against the paper's headline comparison,
+so it should be stated plainly rather than explained away.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.60\textwidth]{results/figures/simulation_f1.png}
+\caption{Quick-run simulation F1 output. The near overlap of the curves matches the code audit
+because the non-ParCorr labels currently fall back to ParCorr.}
+\end{figure}
+
+\subsection*{7.2 Financial case}
+
+The financial case is the strongest part of the project. The case-study edge file reports 95
+discovered edges for 2000 to 2007, 77 for 2008 to 2015, 59 for 2016 to 2022, and 66 for the
+full-period run. That is at least directionally consistent with the paper's claim that dependence
+structure changes over time.
+
+The saved class-oriented adjustment file \texttt{class\_oriented\_adjust\_famafrench\_SMB\_HML.csv}
+estimates a coefficient of 0.271 for SMB on HML with standard error 0.034 and
+\(p < 1.7 \times 10^{-15}\), using \(L=\{RMW\}\) as the graph-derived adjustment set. A second
+file, \texttt{class\_oriented\_adjust\_famafrench\_RMW\_Mkt\_RF.csv}, estimates a coefficient of
+\(-0.829\) for RMW on Mkt-RF with \(L=\{HML, SMB\}\).
+
+The caution comes from the diagnostics. The graph falsification report passes only 6 of 13 implied
+independence checks. The rolling stability analysis shows the SMB to HML edge in only 8 of 57
+windows, while the adjusted coefficient is statistically significant in 31 of 57 windows. So the
+regression signal is more stable than the edge itself, which is exactly the kind of tension that a
+class-style write-up should acknowledge.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.55\textwidth]{results/figures/rolling_stability_famafrench_SMB_HML.png}
+\caption{Rolling-window stability for the SMB to HML financial analysis. The coefficient appears
+more stable than the edge itself.}
+\end{figure}
+
+\subsection*{7.3 Macro case}
+
+The macro case is much less decisive. The saved CD-NOD graph directs \texttt{context\_country} into
+unemployment, CPI, and PPI, but keeps the pairwise edges among those three variables undirected.
+The downstream class-oriented regression still returns a coefficient of \(-0.074\) with standard
+error 0.028 and \(p = 0.0076\), but it also raises an ambiguity warning because unemployment and
+CPI remain undirected neighbors.
+
+That is exactly how this result should be written up using the lecture language. There is an
+adjusted association, but the backdoor argument is not settled. The graph never gives us a clean
+\(L\) near the treatment-outcome pair, so the causal interpretation is weaker than in the financial
+case.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=0.48\textwidth]{results/graphs/case_macro_US.png}
+\caption{Saved macro graph for the US case. The remaining undirected edges near unemployment and CPI
+are the reason the macro identification argument stays weaker.}
+\end{figure}
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\textwidth}{p{0.24\textwidth} p{0.22\textwidth} X}
+\toprule
+\textbf{Analysis} & \textbf{Saved Result} & \textbf{Interpretation} \\
+\midrule
+Quick simulations & F1 ranges from 0.200 to 0.408, identical across CI labels & Matches the code audit because the non-ParCorr labels fall back to ParCorr \\
+PCMCI benchmark & CD-NOTS-ParCorr: \(0/0/0\); PCMCI-ParCorr: \(1/1/1\) & The current benchmark does not support the paper's comparative claim \\
+Financial adjustment & SMB on HML coefficient \(= 0.271\), SE \(= 0.034\) & Strong adjusted association under the working graph-derived set \(L=\{RMW\}\) \\
+Graph falsification & 6 of 13 implied independence checks pass & Mixed support for the financial working DAG \\
+Rolling stability & Edge appears in 8 of 57 windows; coefficient significant in 31 of 57 windows & The coefficient is more stable than the edge \\
+Macro adjustment & Unemployment on \(\Delta cpi\) coefficient \(= -0.074\), SE \(= 0.028\) & Association is nonzero, but identification remains ambiguous because the graph is partially directed \\
+\bottomrule
+\end{tabularx}
+\caption{Main numerical outputs used in the discussion.}
+\end{table}
+
+\section*{8. Hidden Bias, Overlap, and Robustness}
+
+As we discussed in Lecture 14 titled: \textit{Rosenbaum's model for hidden bias in matched
+observational studies}, the right question is not only whether a coefficient is nonzero, but also
+how sensitive the conclusion is to unmeasured confounding. The repository does \emph{not} implement
+a formal \(\Gamma\)-based sensitivity analysis, so we should not use that language too casually.
+
+What the repository does provide are diagnostics that move in the same direction: graph implication
+falsification, rolling-window stability, ambiguity flags when the graph remains partially directed,
+and partial-\(R^2\)-style summaries. These are useful checks, but they are not a substitute for a
+formal hidden-bias analysis.
+
+Overlap is also more informal than it would be in a lecture-style IPW analysis. The financial case
+has many more observations, so the support problem is milder. The macro case has far fewer
+observations and stronger trend structure, so the overlap claim is weaker there. That is one reason
+the macro coefficient should be treated much more cautiously.
+
+\section*{9. Discussion and Conclusion}
+
+Using the language of class, our final position is simple.
+
+\begin{enumerate}[leftmargin=1.5em]
+\item The project has a clear estimand in potential-outcomes notation once we specify \(Z\), \(Y\),
+\(X\), and \(\Omega\) for each case.
+\item The identification strategy is a backdoor-adjustment argument based on a working DAG, not a
+known DAG.
+\item The estimator is graph-guided outcome regression with HAC standard errors.
+\item The main threats are failures of consistency, SUTVA, exchangeability, overlap, and hidden
+bias.
+\end{enumerate}
+
+On the software side, the repository is useful and reproducible. On the scientific side, it is not
+yet a full replication of the paper because the CI machinery is still simplified, the stage-4
+orientation is approximate, and the benchmark does not reproduce the paper's main comparison. So
+the right conclusion is narrower than the paper's conclusion. This project gives us a workable
+bridge from causal discovery to course-style causal reasoning. It does not yet settle the paper's
+empirical claims.
+
+\clearpage
+\section*{References}
+
+\footnotesize
+\begin{itemize}[leftmargin=1.5em, itemsep=0pt, parsep=0pt, topsep=2pt]
+\item Hern\'an, M. A. and Robins, J. M. (2023+). \textit{Causal Inference: What If}.
+\item Huang, B., Zhang, K., Zhang, J., Glymour, C., and Sch\"olkopf, B. (2020). Causal discovery from heterogeneous and nonstationary data with independent changes.
+\item Pearl, J. (2009). \textit{Causality}.
+\item Rosenbaum, P. R. (2002). \textit{Observational Studies}.
+\item Rosenbaum, P. R. (2020). \textit{Design of Observational Studies}.
+\item Runge, J. et al. (2019). Detecting and quantifying causal associations in large nonlinear time series datasets.
+\item Sadeghi, A., Gopal, A., and Fesanghary, M. (2024). \textit{Causal Discovery in Financial Markets: A Framework for Nonstationary Time-Series Data}.
+\item VanderWeele, T. and Shpitser, I. (2011). A new criterion for confounder selection.
+\end{itemize}
+
+\end{document}

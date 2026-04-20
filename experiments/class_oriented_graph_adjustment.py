@@ -1,12 +1,13 @@
 """
-Lecture 13-style adjustment using the *directed* part of a CD-NOD graph.
+Class-oriented adjustment using the *directed* part of a CD-NOD graph.
 
 Reads `discovery2/outputs/cdnod_<tag>_directed_edges.csv` (from run_causal_learn.py),
 builds a simple adjustment set L = {parents of Z in that digraph}, then runs
 
     Y ~ Z + L
 
-with HAC standard errors (time series–friendly; aligns with Lectures 15–16 spirit).
+with HAC standard errors. This follows the course framing of graph-based
+backdoor adjustment plus outcome regression.
 
 This is a *heuristic*: CD-NOD can return a PDAG; we only use edges classified as
 fully directed. Undirected adjacencies are ignored here—see Dagitty / manual
@@ -14,10 +15,10 @@ backdoor reasoning for a full Markov equivalence class analysis.
 
 Usage (repo root, after regenerating discovery2 outputs):
 
-    python -m experiments.lecture13_graph_adjustment --tag famafrench --z SMB --y HML
+    python -m experiments.class_oriented_graph_adjustment --tag famafrench --z SMB --y HML
     # RMW -> Mkt_RF: L_graph = parents(RMW) = {SMB, HML} per directed CD-NOD output
-    python -m experiments.lecture13_graph_adjustment --tag famafrench --z RMW --y Mkt_RF
-    python -m experiments.lecture13_graph_adjustment --tag macro_US \\
+    python -m experiments.class_oriented_graph_adjustment --tag famafrench --z RMW --y Mkt_RF
+    python -m experiments.class_oriented_graph_adjustment --tag macro_US \\
         --z unemployment --y cpi --country US --cpi-diff
 """
 
@@ -32,7 +33,7 @@ from experiments.causal_diagnostics import candidate_controls_from_graph, graph_
 from experiments.common import build_paths, load_famafrench_daily, load_macro_monthly
 from src.cdnots.project_io import get_logger
 
-LOGGER = get_logger("experiments.lecture13_graph_adjustment")
+LOGGER = get_logger("experiments.class_oriented_graph_adjustment")
 
 
 def _parents_z(directed: pd.DataFrame, z: str) -> list[str]:
@@ -67,7 +68,7 @@ def _hidden_confounding_sensitivity(t_stat: float, dof: float) -> tuple[float, f
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Lecture 13-style OLS using CD-NOD directed edges.")
+    parser = argparse.ArgumentParser(description="Class-oriented OLS using CD-NOD directed edges.")
     parser.add_argument("--project-root", default=".", type=Path)
     parser.add_argument("--tag", required=True, help="e.g. famafrench, macro_US, macro_all")
     parser.add_argument("--z", required=True, help="Treatment column name in the data CSV")
@@ -143,7 +144,7 @@ def main() -> None:
     t_stat = float(model.tvalues[z_col]) if z_col in model.tvalues else 0.0
     partial_r2, robustness_value = _hidden_confounding_sensitivity(t_stat=t_stat, dof=float(model.df_resid))
 
-    print("=== Lecture 13 heuristic: backdoor adjustment via parents(Z) in directed CD-NOD subgraph ===")
+    print("=== Class-oriented heuristic: backdoor adjustment via parents(Z) in directed CD-NOD subgraph ===")
     print(f"Tag={args.tag}  Z={z_col}" + (f" (lag {args.lag_z})" if args.lag_z else "") + f"  Y={y_col}")
     print(f"Adjustment mode = {args.adjustment_mode}")
     print(f"Adjustment set L (from graph) = {graph_controls}")
@@ -173,7 +174,7 @@ def main() -> None:
         "n": int(model.nobs),
         "r2": float(model.rsquared),
     }
-    output_path = out / f"lecture13_adjust_{args.tag}_{z_col}_{y_col}.csv"
+    output_path = out / f"class_oriented_adjust_{args.tag}_{z_col}_{y_col}.csv"
     pd.DataFrame([row]).to_csv(output_path, index=False)
     LOGGER.info("Saved: %s", output_path)
 
